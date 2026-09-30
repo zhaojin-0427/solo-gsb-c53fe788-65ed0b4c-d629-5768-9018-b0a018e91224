@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>实验室化学品相容性审查台</title>
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+  <header>
+    <h1>🧪 实验室化学品相容性审查台</h1>
+    <nav>
+      <button class="tab active" data-tab="chemicals">化学品</button>
+      <button class="tab" data-tab="zones">储存分区</button>
+      <button class="tab" data-tab="events">事件登记</button>
+      <button class="tab" data-tab="rules">规则管理</button>
+      <button class="tab" data-tab="reviews">相容性审查</button>
+    </nav>
+  </header>
+
+  <main>
+    <!-- ============ 化学品 ============ -->
+    <section id="tab-chemicals" class="panel active">
+      <h2>化学品台账</h2>
+      <form id="chemical-form" class="card form-grid">
+        <input type="hidden" id="chem-id">
+        <label>名称* <input id="chem-name" required></label>
+        <label>CAS 号 <input id="chem-cas" placeholder="如 7647-01-0"></label>
+        <label>标签（逗号分隔）
+          <input id="chem-tags" placeholder="acid, corrosive">
+        </label>
+        <label>浓度 % <input id="chem-conc" type="number" step="any" min="0" max="100" placeholder="未知可留空"></label>
+        <label>体积 mL <input id="chem-vol" type="number" step="any" min="0"></label>
+        <label>温度 °C <input id="chem-temp" type="number" step="any" placeholder="未知可留空"></label>
+        <label>容器材质
+          <select id="chem-material">
+            <option value="">未知</option>
+            <option value="glass">玻璃</option>
+            <option value="hdpe">HDPE 塑料</option>
+            <option value="pp">PP 塑料</option>
+            <option value="ptfe">PTFE 聚四氟乙烯</option>
+            <option value="stainless_steel">不锈钢</option>
+            <option value="aluminum">铝</option>
+          </select>
+        </label>
+        <label>所在分区 <select id="chem-zone"></select></label>
+        <div class="form-actions">
+          <button type="submit" class="primary">保存</button>
+          <button type="button" id="chem-reset">清空</button>
+        </div>
+      </form>
+      <p class="hint">常用标签：acid 酸、base 碱、oxidizer 氧化剂、reducer 还原剂、flammable 易燃、
+        sulfide 硫化物、cyanide 氰化物、glass_corrosive 腐蚀玻璃、corrosive 腐蚀、toxic 有毒、organic 有机物</p>
+      <table id="chemical-table">
+        <thead><tr>
+          <th>ID</th><th>名称</th><th>CAS 号</th><th>标签</th><th>浓度%</th>
+          <th>体积mL</th><th>温度°C</th><th>容器</th><th>分区</th><th>操作</th>
+        </tr></thead>
+        <tbody></tbody>
+      </table>
+    </section>
+
+    <!-- ============ 分区 ============ -->
+    <section id="tab-zones" class="panel">
+      <h2>储存分区</h2>
+      <form id="zone-form" class="card form-grid">
+        <input type="hidden" id="zone-id">
+        <label>名称* <input id="zone-name" required></label>
+        <label>说明 <input id="zone-desc"></label>
+        <div class="form-actions">
+          <button type="submit" class="primary">保存</button>
+          <button type="button" id="zone-reset">清空</button>
+        </div>
+      </form>
+      <table id="zone-table">
+        <thead><tr><th>ID</th><th>名称</th><th>说明</th><th>化学品数</th><th>操作</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </section>
+
+    <!-- ============ 事件 ============ -->
+    <section id="tab-events" class="panel">
+      <h2>待执行事件（转移 / 混合 / 废弃）</h2>
+      <form id="event-form" class="card form-grid">
+        <label>类型*
+          <select id="ev-type">
+            <option value="transfer">转移</option>
+            <option value="mix">混合</option>
+            <option value="dispose">废弃</option>
+          </select>
+        </label>
+        <label>化学品* <select id="ev-chem"></select></label>
+        <label id="ev-chem2-wrap">第二化学品（混合）<select id="ev-chem2"></select></label>
+        <label id="ev-zone-wrap">目标分区（转移）<select id="ev-zone"></select></label>
+        <label>执行顺序* <input id="ev-seq" type="number" value="1" required></label>
+        <label>备注 <input id="ev-note"></label>
+        <div class="form-actions"><button type="submit" class="primary">登记事件</button></div>
+      </form>
+      <table id="event-table">
+        <thead><tr>
+          <th>顺序</th><th>类型</th><th>化学品</th><th>对象/目标</th><th>状态</th><th>备注</th><th>操作</th>
+        </tr></thead>
+        <tbody></tbody>
+      </table>
+    </section>
+
+    <!-- ============ 规则 ============ -->
+    <section id="tab-rules" class="panel">
+      <h2>规则版本</h2>
+      <div class="card">
+        <div class="row">
+          <select id="rv-select"></select>
+          <button id="rv-activate">启用该版本</button>
+          <input id="rv-new-name" placeholder="新版本名，如 v2">
+          <button id="rv-copy">以当前版本为基础新建</button>
+        </div>
+        <p class="hint">审查结果会保存所用规则快照，引用固定版本可复现；新建版本会复制当前版本全部规则。</p>
+      </div>
+
+      <h2>规则条目</h2>
+      <form id="rule-form" class="card form-grid">
+        <input type="hidden" id="rule-id">
+        <label>类型*
+          <select id="rule-type">
+            <option value="acid_base">酸碱</option>
+            <option value="redox">氧化还原</option>
+            <option value="gas">放气</option>
+            <option value="exothermic">放热</option>
+            <option value="corrosion">容器腐蚀</option>
+            <option value="disposal">废弃处置</option>
+          </select>
+        </label>
+        <label>名称* <input id="rule-name" required></label>
+        <label>级别
+          <select id="rule-severity">
+            <option value="forbidden">禁止</option>
+            <option value="review">人工复核</option>
+          </select>
+        </label>
+        <label class="span2">条件（JSON）
+          <textarea id="rule-conditions" rows="3" placeholder='{"tag_a":"acid","tag_b":"base","min_concentration_a":5}'></textarea>
+        </label>
+        <label class="span2">提示语 <input id="rule-message"></label>
+        <label>启用 <input id="rule-enabled" type="checkbox" checked></label>
+        <div class="form-actions">
+          <button type="submit" class="primary">保存规则</button>
+          <button type="button" id="rule-reset">清空</button>
+        </div>
+      </form>
+      <details class="card hint-block">
+        <summary>条件字段说明</summary>
+        <ul>
+          <li>成对规则（酸碱/氧化还原/放气/放热）：<code>tag_a</code>、<code>tag_b</code> 标签；
+            <code>min_concentration_a/_b</code>、<code>max_concentration_a/_b</code> 浓度阈值；
+            <code>min_temperature</code>（任一 ≥）、<code>max_temperature</code>（全部 ≤）；
+            <code>event_types</code> 限定场景，如 <code>["mix"]</code>、<code>["storage"]</code>。</li>
+          <li>单体规则（容器腐蚀/废弃处置）：<code>tag</code>、<code>min_concentration</code>、
+            <code>material</code>（glass/hdpe/pp/ptfe/stainless_steel/aluminum）、<code>event_types</code>。</li>
+          <li>规则要求的数据缺失（浓度/温度/材质未知）时，结论自动转为「人工复核」。</li>
+        </ul>
+      </details>
+      <table id="rule-table">
+        <thead><tr>
+          <th>ID</th><th>类型</th><th>名称</th><th>级别</th><th>条件</th><th>启用</th><th>操作</th>
+        </tr></thead>
+        <tbody></tbody>
+      </table>
+    </section>
+
+    <!-- ============ 审查 ============ -->
+    <section id="tab-reviews" class="panel">
+      <h2>相容性审查</h2>
+      <div class="card row">
+        <select id="review-version"></select>
+        <button id="run-review" class="primary">运行审查</button>
+        <span class="hint">对当前每个同区组合与待执行事件的前后状态逐项判定</span>
+      </div>
+      <div id="review-result"></div>
+      <h2>历史审查记录</h2>
+      <table id="review-table">
+        <thead><tr><th>ID</th><th>规则版本</th><th>结论</th><th>时间</th><th>操作</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </section>
+  </main>
+
+  <div id="toast"></div>
+  <script src="/static/app.js"></script>
+</body>
+</html>

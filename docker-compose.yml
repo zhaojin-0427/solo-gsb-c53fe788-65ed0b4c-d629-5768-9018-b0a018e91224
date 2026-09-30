@@ -1,0 +1,12 @@
+services:
+  app:
+    build: ./backend
+    container_name: chem-compat-review
+    ports:
+      - "8000:8000"
+    volumes:
+      - chem_data:/data
+    restart: unless-stopped
+
+volumes:
+  chem_data:
