@@ -144,6 +144,50 @@ tr:last-child td { border-bottom: none; }
 .finding ul { margin: 6px 0 0; padding-left: 18px; font-size: 13px; color: #45545f; }
 .finding .meta { font-size: 13px; color: #6b7a89; }
 
+.timeline-item {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 12px 16px;
+  margin-bottom: 14px;
+}
+.timeline-item h3 {
+  margin: 0 0 8px;
+  font-size: 15px;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.timeline-item details { margin: 8px 0; }
+.timeline-item details summary { cursor: pointer; font-size: 13px; color: var(--primary); }
+.snapshot {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 6px 0;
+  font-size: 13px;
+}
+.zone-chip {
+  background: #f4f7fb;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 4px 10px;
+}
+.zone-chip.removed { background: #f3f4f6; color: #6b7280; }
+.zone-chip em { color: #9aa6b2; font-style: normal; }
+.state-before, .state-after { display: flex; align-items: flex-start; gap: 8px; }
+.state-after { margin-top: 2px; }
+.state-arrow { color: #9aa6b2; font-size: 13px; margin: 1px 0 1px 56px; }
+.state-label {
+  flex: 0 0 48px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #6b7a89;
+  padding-top: 4px;
+}
+.state-before .snapshot, .state-after .snapshot { flex: 1; margin: 0; }
+
 #toast {
   position: fixed;
   bottom: 24px;

@@ -391,6 +391,50 @@ window.delRule = async (id) => {
 };
 
 /* ---------- 审查 ---------- */
+function renderFinding(f) {
+  const where = f.event
+    ? `事件 #${f.event.sequence}（${esc(f.event.event_type_label)}）后 ｜ ${esc(f.zone_name)}`
+    : `当前储存 ｜ ${esc(f.zone_name)}`;
+  return `<div class="finding ${f.severity}">
+    <h4>
+      <span class="badge ${f.severity}">${f.severity === "forbidden" ? "禁止" : "复核"}</span>
+      【${esc(f.rule_type_label)}】${esc(f.rule_name)}
+    </h4>
+    <div class="meta">${where} ｜ 涉及：${f.objects.map((o) =>
+      `「${esc(o.name)}${o.cas_number ? " (" + esc(o.cas_number) + ")" : ""}」`).join("、")}</div>
+    ${f.message ? `<div>${esc(f.message)}</div>` : ""}
+    <ul>${f.conditions.map((c) => `<li>${esc(c)}</li>`).join("")}</ul>
+  </div>`;
+}
+
+function renderStateSnapshot(snap) {
+  if (!snap) return "";
+  const lines = snap.zones.map((z) =>
+    `<span class="zone-chip">${esc(z.name)}：${
+      z.chemicals.length
+        ? z.chemicals.map((c) => esc(c.name)).join("、")
+        : "<em>空</em>"}</span>`);
+  if (snap.unassigned.length) {
+    lines.push(`<span class="zone-chip">未分区：${
+      snap.unassigned.map((c) => esc(c.name)).join("、")}</span>`);
+  }
+  if (snap.removed.length) {
+    lines.push(`<span class="zone-chip removed">已废弃移出：${
+      snap.removed.map((c) => esc(c.name)).join("、")}</span>`);
+  }
+  return `<div class="snapshot">${lines.join("")}</div>`;
+}
+
+function eventTitle(ev) {
+  let detail = "";
+  if (ev.event_type === "transfer") {
+    detail = `→ ${esc(ev.target_zone_name || "未知分区")}`;
+  } else if (ev.event_type === "mix") {
+    detail = `与「${esc(ev.secondary_chemical ? ev.secondary_chemical.name : "")}」混合`;
+  }
+  return `#${ev.sequence} ${esc(ev.event_type_label)}：「${esc(ev.chemical.name)}」${detail}`;
+}
+
 function renderReviewResult(data) {
   const r = data.result;
   const box = $("review-result");
@@ -419,22 +463,50 @@ function renderReviewResult(data) {
 
   if (!r.findings.length) {
     html += `<div class="card">所有同区组合与事件均通过检查。</div>`;
-  } else {
-    html += r.findings.map((f) => {
-      const where = f.event
-        ? `事件 #${f.event.sequence}（${esc(f.event.event_type_label)}）后 ｜ ${esc(f.zone_name)}`
-        : `当前储存 ｜ ${esc(f.zone_name)}`;
-      return `<div class="finding ${f.severity}">
-        <h4>
-          <span class="badge ${f.severity}">${f.severity === "forbidden" ? "禁止" : "复核"}</span>
-          【${esc(f.rule_type_label)}】${esc(f.rule_name)}
-        </h4>
-        <div class="meta">${where} ｜ 涉及：${f.objects.map((o) =>
-          `「${esc(o.name)}${o.cas_number ? " (" + esc(o.cas_number) + ")" : ""}」`).join("、")}</div>
-        ${f.message ? `<div>${esc(f.message)}</div>` : ""}
-        <ul>${f.conditions.map((c) => `<li>${esc(c)}</li>`).join("")}</ul>
+  }
+
+  // 新记录：先报告当前储存，再按执行顺序展示每个事件的前后状态与发现；
+  // 旧审查记录（无 timeline）仍以扁平发现列表展示，保持可读。
+  if (r.timeline && r.timeline.length) {
+    html += r.timeline.map((t) => {
+      if (t.phase === "storage") {
+        return `<div class="timeline-item">
+          <h3>📦 当前储存状态（审查时点）</h3>
+          ${renderStateSnapshot(t.state_after)}
+          ${t.findings.length
+            ? t.findings.map(renderFinding).join("")
+            : `<div class="card hint">当前储存未发现冲突。</div>`}
+        </div>`;
+      }
+      const ev = t.event;
+      const badge = t.skipped
+        ? '<span class="badge cancelled">已跳过</span>'
+        : `<span class="badge ${t.findings.some((f) => f.severity === "forbidden")
+            ? "forbidden"
+            : (t.findings.length ? "review" : "ok")}">${
+            t.findings.some((f) => f.severity === "forbidden")
+              ? "命中禁止项" : (t.findings.length ? "需复核" : "无冲突")}</span>`;
+      return `<div class="timeline-item">
+        <h3>🔔 事件 ${eventTitle(ev)} ${badge}</h3>
+        ${ev.note ? `<div class="hint">备注：${esc(ev.note)}</div>` : ""}
+        ${t.skipped
+          ? `<div class="card hint">⚠️ ${esc(t.skip_reason || "该事件未参与模拟")}</div>`
+          : ""}
+        <details open>
+          <summary>执行前 / 执行后模拟库存</summary>
+          <div class="state-before"><span class="state-label">执行前</span>
+            ${renderStateSnapshot(t.state_before)}</div>
+          <div class="state-arrow">↓</div>
+          <div class="state-after"><span class="state-label">执行后</span>
+            ${renderStateSnapshot(t.state_after)}</div>
+        </details>
+        ${t.findings.length
+          ? t.findings.map(renderFinding).join("")
+          : `<div class="card hint">${t.skipped ? "" : "该事件未发现冲突。"}</div>`}
       </div>`;
     }).join("");
+  } else {
+    html += r.findings.map(renderFinding).join("");
   }
   box.innerHTML = html;
 }
