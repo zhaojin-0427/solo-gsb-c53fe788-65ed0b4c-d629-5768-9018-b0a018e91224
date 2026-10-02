@@ -144,6 +144,26 @@ tr:last-child td { border-bottom: none; }
 .finding ul { margin: 6px 0 0; padding-left: 18px; font-size: 13px; color: #45545f; }
 .finding .meta { font-size: 13px; color: #6b7a89; }
 
+.event-step {
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 8px 12px;
+  margin-top: 8px;
+  font-size: 14px;
+}
+.event-step-head {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+  margin-bottom: 4px;
+}
+.zone-diff { font-size: 13px; color: #45545f; }
+.zone-row { padding: 2px 0; }
+.zone-row.changed { color: var(--text); }
+.zone-row .removed { color: var(--danger); text-decoration: line-through; }
+.zone-row .added { color: var(--ok); font-weight: 600; }
+
 #toast {
   position: fixed;
   bottom: 24px;

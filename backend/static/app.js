@@ -391,6 +391,58 @@ window.delRule = async (id) => {
 };
 
 /* ---------- 审查 ---------- */
+function renderStepZones(before, after) {
+  // 前后快照均含全部分区；只列出任一时刻非空的分区，变化的分区高亮对比
+  const bMap = {};
+  before.forEach((z) => (bMap[String(z.zone_id)] = z));
+  return after.map((a) => {
+    const b = bMap[String(a.zone_id)] || { chemicals: [] };
+    if (!b.chemicals.length && !a.chemicals.length) return "";
+    const bIds = new Set(b.chemicals.map((c) => c.id));
+    const aIds = new Set(a.chemicals.map((c) => c.id));
+    const changed = b.chemicals.some((c) => !aIds.has(c.id))
+      || a.chemicals.some((c) => !bIds.has(c.id));
+    const names = (chems, otherIds, cls) =>
+      chems.map((c) => (otherIds.has(c.id)
+        ? esc(c.name)
+        : `<span class="${cls}">${esc(c.name)}</span>`)).join("、") || "（空）";
+    if (!changed) {
+      return `<div class="zone-row"><b>${esc(a.zone_name)}</b>：${names(a.chemicals, bIds, "")}</div>`;
+    }
+    return `<div class="zone-row changed"><b>${esc(a.zone_name)}</b>：
+      ${names(b.chemicals, aIds, "removed")} → ${names(a.chemicals, bIds, "added")}</div>`;
+  }).join("");
+}
+
+function renderEventSteps(steps) {
+  if (!steps || !steps.length) return "";
+  const items = steps.map((s) => {
+    const ev = s.event;
+    let title;
+    if (ev.event_type === "transfer") {
+      title = `「${esc(ev.chemical_name)}」→ ${esc(ev.target_zone_name || "未分区")}`;
+    } else if (ev.event_type === "mix") {
+      title = `「${esc(ev.chemical_name)}」与「${esc(ev.secondary_chemical_name || "?")}」混合`;
+    } else {
+      title = `废弃「${esc(ev.chemical_name)}」`;
+    }
+    const body = s.skipped
+      ? `<div class="hint">${esc(s.skipped)}</div>`
+      : `<div class="zone-diff">${renderStepZones(s.before, s.after)}</div>`;
+    return `<div class="event-step">
+      <div class="event-step-head">
+        <span class="badge pending">#${ev.sequence} ${esc(ev.event_type_label)}</span>
+        ${title}
+        ${ev.note ? `<span class="hint">（${esc(ev.note)}）</span>` : ""}
+        <span class="hint">新增发现 ${s.finding_count} 条</span>
+      </div>
+      ${body}
+    </div>`;
+  }).join("");
+  return `<div class="card"><strong>事件模拟过程（按执行顺序，库存状态逐步更新）：</strong>
+    ${items}</div>`;
+}
+
 function renderReviewResult(data) {
   const r = data.result;
   const box = $("review-result");
@@ -416,6 +468,8 @@ function renderReviewResult(data) {
     html += `<div class="card"><strong>需隔离对象：</strong><ul>
       ${r.isolation.map((s) => `<li>${esc(s)}</li>`).join("")}</ul></div>`;
   }
+
+  html += renderEventSteps(r.event_steps);  // 旧记录无此字段时自动跳过
 
   if (!r.findings.length) {
     html += `<div class="card">所有同区组合与事件均通过检查。</div>`;

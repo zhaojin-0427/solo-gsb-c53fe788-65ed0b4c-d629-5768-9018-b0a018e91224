@@ -28,6 +28,19 @@
 判定结论：
   forbidden  命中禁止条目
   review     规则要求的数据缺失（如浓度、温度、材质未知），需人工复核
+
+审查流程
+--------
+1. 先判定当前储存状态（逐分区、逐组合）；
+2. 再按执行顺序模拟待执行事件，逐步更新模拟库存并判定：
+   - transfer：化学品移入目标分区，随后判定目标分区全部组合；
+   - mix：两项同处目标分区（未指定则取第一项当时分区），判定该组合及各自容器；
+   - dispose：先判定处置规则，再将化学品移出库存；
+   后续事件基于更新后的库存状态判定。
+3. 去重范围：同一规则与对象只在当前储存阶段或单个事件内去重，
+   可在不同事件（及储存阶段）分别命中。
+
+返回结果含 event_steps：每个待执行事件的前/后分区库存快照，供报告展示。
 """
 
 PAIR_RULE_TYPES = {"acid_base", "redox", "gas", "exothermic"}
@@ -181,12 +194,16 @@ def run_review(chemicals, zones, events, rules):
     """执行完整审查，返回结果字典（可直接 JSON 序列化）。"""
     zone_names = {z["id"]: z["name"] for z in zones}
     chem_by_id = {c["id"]: c for c in chemicals}
-    state = {c["id"]: c["zone_id"] for c in chemicals}  # 模拟状态：化学品 -> 分区
+    state = {c["id"]: c["zone_id"] for c in chemicals}  # 模拟库存：化学品 -> 分区
+    disposed = set()  # 已废弃、移出库存的化学品
     findings = []
     seen = set()
 
     def add_finding(rule, severity, objects, zone_id, phase, event, matched, missing):
-        key = (rule["id"], tuple(sorted(o["id"] for o in objects)), zone_id)
+        # 去重范围：当前储存阶段 或 单个事件内部；
+        # 同一规则与对象可在不同事件（及储存阶段）分别命中
+        scope = ("storage",) if event is None else ("event", event["id"])
+        key = (scope, rule["id"], tuple(sorted(o["id"] for o in objects)), zone_id)
         if key in seen:
             return
         seen.add(key)
@@ -253,43 +270,113 @@ def run_review(chemicals, zones, events, rules):
             add_finding(rule, severity, [chem], zone_id, phase, event, matched, missing)
 
     def check_zone(zone_id, phase, event, event_type):
-        chems = [c for c in chemicals if state[c["id"]] == zone_id]
+        chems = [
+            c for c in chemicals
+            if c["id"] not in disposed and state[c["id"]] == zone_id
+        ]
         for i in range(len(chems)):
             check_single(chems[i], phase, event, event_type)
             for j in range(i + 1, len(chems)):
                 check_pair(chems[i], chems[j], zone_id, phase, event, event_type)
 
+    def snapshot():
+        """当前模拟库存快照：各分区（含未分区）在库的化学品名单。"""
+        snap = []
+        for zid in [z["id"] for z in zones] + [None]:
+            members = [
+                {"id": c["id"], "name": c["name"]}
+                for c in chemicals
+                if c["id"] not in disposed and state[c["id"]] == zid
+            ]
+            snap.append(
+                {
+                    "zone_id": zid,
+                    "zone_name": zone_names.get(zid, "未分区"),
+                    "chemicals": members,
+                }
+            )
+        return snap
+
     # 1) 当前储存状态：逐分区、逐组合判定
     for zone_id in {z["id"] for z in zones} | {None}:
         check_zone(zone_id, "storage", None, "storage")
 
-    # 2) 按登记顺序模拟待执行事件，逐步判定事件后状态
+    # 2) 按登记顺序模拟待执行事件：逐步更新模拟库存，判定事件后状态，
+    #    并记录每个事件的前/后库存快照供报告展示
     pending = sorted(
         (e for e in events if e["status"] == "pending"),
         key=lambda e: (e["sequence"], e["id"]),
     )
+    event_steps = []
     for ev in pending:
         chem = chem_by_id.get(ev["chemical_id"])
         if chem is None:
             continue
-        if ev["event_type"] == "transfer":
+        before = snapshot()
+        findings_before = len(findings)
+        skipped = None
+        if chem["id"] in disposed:
+            skipped = f"「{chem['name']}」已废弃移出库存，事件不再执行"
+        elif ev["event_type"] == "transfer":
             if ev["target_zone_id"] is not None:
+                # 转移：更新分区，随后判定目标分区全部组合
                 state[chem["id"]] = ev["target_zone_id"]
                 check_zone(ev["target_zone_id"], "event", ev, "transfer")
+            else:
+                skipped = "转移事件缺少目标分区，已跳过"
         elif ev["event_type"] == "mix":
             other = chem_by_id.get(ev["secondary_chemical_id"])
-            if other is not None:
+            if other is None or other["id"] in disposed:
+                skipped = "混合对象不存在或已废弃，事件已跳过"
+            else:
+                # 混合后两项同处目标分区（未指定则取第一项当时分区）
                 zone_id = (
                     ev["target_zone_id"]
                     if ev["target_zone_id"] is not None
                     else state[chem["id"]]
                 )
-                # 混合后两者同处一容器：判定该组合及各自容器腐蚀
+                state[chem["id"]] = zone_id
+                state[other["id"]] = zone_id
+                # 判定该组合及各自容器腐蚀
                 check_pair(chem, other, zone_id, "event", ev, "mix")
                 check_single(chem, "event", ev, "mix")
                 check_single(other, "event", ev, "mix")
         elif ev["event_type"] == "dispose":
+            # 先判定处置规则，再移出库存
             check_single(chem, "event", ev, "dispose")
+            disposed.add(chem["id"])
+            state[chem["id"]] = None
+        event_steps.append(
+            {
+                "event": {
+                    "id": ev["id"],
+                    "sequence": ev["sequence"],
+                    "event_type": ev["event_type"],
+                    "event_type_label": EVENT_TYPE_LABELS.get(
+                        ev["event_type"], ev["event_type"]
+                    ),
+                    "chemical_id": chem["id"],
+                    "chemical_name": chem["name"],
+                    "secondary_chemical_name": (
+                        chem_by_id[ev["secondary_chemical_id"]]["name"]
+                        if ev["event_type"] == "mix"
+                        and ev["secondary_chemical_id"] in chem_by_id
+                        else None
+                    ),
+                    "target_zone_id": ev["target_zone_id"],
+                    "target_zone_name": (
+                        zone_names.get(ev["target_zone_id"], "未分区")
+                        if ev["target_zone_id"] is not None
+                        else None
+                    ),
+                    "note": ev.get("note", ""),
+                },
+                "skipped": skipped,
+                "before": before,
+                "after": snapshot(),
+                "finding_count": len(findings) - findings_before,
+            }
+        )
 
     # 3) 汇总：总体结论、最早冲突、需隔离对象
     forbidden = [f for f in findings if f["severity"] == "forbidden"]
@@ -332,5 +419,6 @@ def run_review(chemicals, zones, events, rules):
         },
         "earliest_conflict": earliest,
         "isolation": isolation,
+        "event_steps": event_steps,
         "findings": findings,
     }
